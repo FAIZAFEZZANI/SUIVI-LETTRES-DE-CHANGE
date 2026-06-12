@@ -41,6 +41,7 @@
         .btn-export { background: #27ae60; }
         .btn-warning { background: #e67e22; }
         .btn-save { background: #2980b9; }
+        .btn-import { background: #8e44ad; }
         table { width: 100%; border-collapse: collapse; }
         th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e2e8f0; }
         th { background: #e6f0f5; }
@@ -145,7 +146,7 @@
         </div>
     </div>
 
-    <!-- TAB 4 -->
+    <!-- TAB 4 (PERSONNALISATION + IMPORT/EXPORT JSON) -->
     <div id="tab4" class="tab-content">
         <h2>⚙️ Personnalisation pour le client</h2>
         <div style="background:#f8fafc; padding:20px; border-radius:20px;">
@@ -154,12 +155,20 @@
             <div class="form-group"><label>Activité :</label><input type="text" id="clientActiviteInput" placeholder="Ex: Construction, BTP"></div>
             <div class="form-group"><label>Logo (URL ou base64) :</label><input type="text" id="clientLogoInput" placeholder="Collez une URL d'image ou une image base64"></div>
             <div class="form-group"><button id="saveClientInfos" class="btn-save">💾 Enregistrer les informations</button></div>
-            <hr><p><strong>Astuce :</strong> Pour le logo, utilisez une URL ou une image base64.</p>
+            <hr>
+            <h3>🔄 Synchronisation manuelle entre appareils</h3>
+            <p>Exportez vos données depuis votre PC, transférez le fichier sur votre téléphone (par email, WhatsApp, cloud), puis importez-le ici.</p>
+            <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                <button id="exportAllDataBtn" class="btn-export">💾 Exporter toutes les données (JSON)</button>
+                <label for="importFileInput" class="btn-import" style="background: #8e44ad; padding: 8px 12px; border-radius: 12px; cursor: pointer;">📂 Importer des données (JSON)</label>
+                <input type="file" id="importFileInput" accept=".json" style="display: none;">
+            </div>
+            <p><small>Le fichier JSON contient toutes vos lettres, fournisseurs, banques et informations client.</small></p>
         </div>
     </div>
 </div>
 
-<!-- Modals -->
+<!-- Modals (inchangées) -->
 <div id="modal" class="modal"><div class="modal-content"><h2 id="modalTitle">Lettre de change</h2>
     <div class="form-group"><label>Fournisseur *</label><select id="fournisseurSelect"></select><div class="inline-add"><input type="text" id="quickFournisseur" placeholder="Nouveau fournisseur"><button id="quickAddFournisseur">+ Ajouter</button></div></div>
     <div class="form-group"><label>Banque *</label><select id="banqueSelect"></select><div class="inline-add"><input type="text" id="quickBanque" placeholder="Nouvelle banque"><button id="quickAddBanque">+ Ajouter</button></div></div>
@@ -173,7 +182,7 @@
 <div id="modalEditRef" class="modal"><div class="modal-content"><h2 id="modalEditTitle">Modifier</h2><div class="form-group"><label>Nouveau nom</label><input type="text" id="editRefName"></div><div style="display: flex; gap: 10px; justify-content: flex-end;"><button id="cancelEditRef">Annuler</button><button id="saveEditRef" class="btn-save">Enregistrer</button></div></div></div>
 
 <script>
-    // ========== CONVERSION DATES ==========
+    // ========== CONVERSION DATES (inchangée) ==========
     function dateToIso(str) {
         if (!str) return "";
         let parts = str.split('/');
@@ -484,7 +493,64 @@
         return `<div style="border-bottom:2px solid #2c7da0; margin-bottom:15px; padding-bottom:10px;">${logoHtml}<h2 style="margin:0; color:#1e4a6e;">${clientInfos.nom}</h2><p style="margin:5px 0;">${clientInfos.adresse}<br>${clientInfos.activite}</p></div>`;
     }
 
-    // ========== EXPORTS ==========
+    // ========== NOUVEAU : EXPORT/IMPORT JSON POUR SYNCHRONISATION ==========
+    function exportAllData() {
+        const exportObj = {
+            version: "1.0",
+            exportDate: new Date().toISOString(),
+            fournisseurs: fournisseurs,
+            banques: banques,
+            lettres: lettres,
+            nextId: nextId,
+            clientInfos: clientInfos
+        };
+        const dataStr = JSON.stringify(exportObj, null, 2);
+        const blob = new Blob([dataStr], {type: "application/json"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `suivi_lettres_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        alert("✅ Données exportées avec succès !");
+    }
+
+    function importAllData(file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const imported = JSON.parse(e.target.result);
+                if (!imported.fournisseurs || !imported.banques || !imported.lettres || imported.nextId === undefined) {
+                    throw new Error("Fichier JSON invalide : structure incorrecte.");
+                }
+                // Remplacer les données actuelles
+                fournisseurs = imported.fournisseurs;
+                banques = imported.banques;
+                lettres = imported.lettres.map(l => {
+                    if (!l.dateLiquidation) l.dateLiquidation = "";
+                    updateStatut(l);
+                    return l;
+                });
+                nextId = imported.nextId;
+                if (imported.clientInfos) clientInfos = imported.clientInfos;
+                // Sauvegarder dans localStorage
+                saveData();
+                localStorage.setItem("lc_client_infos", JSON.stringify(clientInfos));
+                // Rafraîchir l'interface
+                refreshAll();
+                updateClientDisplay();
+                alert(`✅ Import réussi ! ${lettres.length} lettres, ${fournisseurs.length} fournisseurs, ${banques.length} banques.`);
+            } catch (err) {
+                alert("❌ Erreur lors de l'import : " + err.message);
+            }
+        };
+        reader.onerror = () => alert("Erreur de lecture du fichier.");
+        reader.readAsText(file);
+    }
+
+    // ========== EXPORTS EXCEL/PDF (inchangés) ==========
     function exportToExcelWithHeader(data, filename, sheetName) {
         const finalData = [[`Société: ${clientInfos.nom}`],[`Adresse: ${clientInfos.adresse}`],[`Activité: ${clientInfos.activite}`],[],...data.map(row => Object.values(row))];
         const ws = XLSX.utils.aoa_to_sheet(finalData);
@@ -555,7 +621,7 @@
         printWithHeader(rapportHtml, "Rapport des engagements");
     });
 
-    // SITUATION
+    // SITUATION (inchangée)
     let currentSituationData = [];
     function getTodayISO() { return new Date().toISOString().slice(0,10); }
     function getSelectedFournisseur() { return document.getElementById("situationFournisseurFilter").value || null; }
@@ -622,6 +688,13 @@
     document.getElementById("addBanqueBtn").addEventListener("click", addBanqueFromTab);
     document.getElementById("saveClientInfos").addEventListener("click", saveClientInfos);
 
+    // Nouveaux événements pour l'export/import JSON
+    document.getElementById("exportAllDataBtn").addEventListener("click", exportAllData);
+    document.getElementById("importFileInput").addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) importAllData(e.target.files[0]);
+        e.target.value = ""; // permet de réimporter le même fichier plus tard
+    });
+
     // Tabs
     document.querySelectorAll(".tab-btn").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -636,7 +709,7 @@
     loadClientInfos();
     refreshAll();
 
-    // Enregistrement du Service Worker
+    // Service Worker (inchangé)
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js').then(reg => console.log('SW enregistré', reg)).catch(err => console.log('SW erreur', err));
     }
